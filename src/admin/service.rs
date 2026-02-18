@@ -12,6 +12,7 @@ use crate::kiro::model::credentials::KiroCredentials;
 use crate::kiro::token_manager::MultiTokenManager;
 
 use super::error::AdminServiceError;
+use super::import::ImportResult;
 use super::types::{
     AddCredentialRequest, AddCredentialResponse, BalanceResponse, CredentialStatusItem,
     CredentialsStatusResponse, LoadBalancingModeResponse, SetLoadBalancingModeRequest,
@@ -410,5 +411,34 @@ impl AdminService {
         } else {
             AdminServiceError::InternalError(msg)
         }
+    }
+
+    // ============ 凭据导入 ============
+
+    /// 导入凭据
+    ///
+    /// 支持 kiro-accounts 导出格式，自动合并到现有凭据
+    pub fn import_credentials(&self, json_str: &str) -> Result<ImportResult, AdminServiceError> {
+        use super::import::parse_import_data;
+
+        // 解析导入数据
+        let accounts = parse_import_data(json_str)
+            .map_err(|e| AdminServiceError::InvalidCredential(e))?;
+
+        if accounts.is_empty() {
+            return Err(AdminServiceError::InvalidCredential(
+                "未找到有效账号".to_string(),
+            ));
+        }
+
+        // 转换为凭据列表
+        let new_credentials: Vec<KiroCredentials> = accounts.into_iter().map(|a| a.to_credentials()).collect();
+
+        let total = new_credentials.len() as u32;
+
+        // 执行导入
+        let (imported, updated) = self.token_manager.import_credentials(new_credentials);
+
+        Ok(ImportResult::new(imported, updated, 0, total))
     }
 }

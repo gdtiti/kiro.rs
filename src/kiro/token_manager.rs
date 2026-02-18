@@ -1643,6 +1643,76 @@ impl MultiTokenManager {
         tracing::info!("负载均衡模式已设置为: {}", mode);
         Ok(())
     }
+
+    /// 获取所有凭据列表（Admin API 导入用）
+    pub fn get_all_credentials(&self) -> Vec<KiroCredentials> {
+        let entries = self.entries.lock();
+        entries.iter().map(|e| e.credentials.clone()).collect()
+    }
+
+    /// 批量导入凭据（Admin API 导入用）
+    ///
+    /// # 参数
+    /// - `credentials`: 新凭据列表（将合并到现有凭据中）
+    ///
+    /// # 返回
+    /// - `(imported, updated)`: 新增数量和更新数量
+    pub fn import_credentials(&self, credentials: Vec<KiroCredentials>) -> (u32, u32) {
+        let mut entries = self.entries.lock();
+        let mut imported = 0u32;
+        let mut updated = 0u32;
+
+        for new_cred in credentials {
+            // 根据 clientId 查找是否已存在
+            let existing = if let Some(ref client_id) = new_cred.client_id {
+                entries.iter_mut().find(|e| {
+                    e.credentials.client_id.as_ref() == Some(client_id)
+                })
+            } else {
+                None
+            };
+
+            if let Some(entry) = existing {
+                // 更新现有凭据，保留 priority、disabled、failure_count 等状态
+                let priority = entry.credentials.priority;
+                let disabled = entry.disabled;
+                let failure_count = entry.failure_count;
+                let success_count = entry.success_count;
+                let last_used_at = entry.last_used_at.clone();
+
+                entry.credentials = new_cred;
+                entry.credentials.priority = priority;
+                entry.disabled = disabled;
+                entry.failure_count = failure_count;
+                entry.success_count = success_count;
+                entry.last_used_at = last_used_at;
+                updated += 1;
+            } else {
+                // 分配新 ID
+                let new_id = entries.iter().map(|e| e.id).max().unwrap_or(0) + 1;
+                let mut cred = new_cred;
+                cred.id = Some(new_id);
+
+                entries.push(CredentialEntry {
+                    id: new_id,
+                    credentials: cred,
+                    failure_count: 0,
+                    disabled: false,
+                    disabled_reason: None,
+                    success_count: 0,
+                    last_used_at: None,
+                });
+                imported += 1;
+            }
+        }
+
+        // 持久化
+        if let Err(e) = self.persist_credentials() {
+            tracing::warn!("导入凭据后持久化失败: {}", e);
+        }
+
+        (imported, updated)
+    }
 }
 
 impl Drop for MultiTokenManager {
