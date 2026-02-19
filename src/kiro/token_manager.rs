@@ -1706,12 +1706,49 @@ impl MultiTokenManager {
             }
         }
 
-        // 持久化
-        if let Err(e) = self.persist_credentials() {
+        // 释放锁
+        drop(entries);
+
+        // 强制持久化（即使 is_multiple_format 为 false）
+        if let Err(e) = self.force_persist_credentials() {
             tracing::warn!("导入凭据后持久化失败: {}", e);
         }
 
         (imported, updated)
+    }
+
+    /// 强制持久化凭据到文件（用于导入场景）
+    fn force_persist_credentials(&self) -> anyhow::Result<()> {
+        use anyhow::Context;
+
+        let path = match &self.credentials_path {
+            Some(p) => p,
+            None => return Err(anyhow::anyhow!("凭据文件路径未配置")),
+        };
+
+        // 收集所有凭据
+        let credentials: Vec<KiroCredentials> = {
+            let entries = self.entries.lock();
+            entries
+                .iter()
+                .map(|e| {
+                    let mut cred = e.credentials.clone();
+                    cred.canonicalize_auth_method();
+                    cred.disabled = e.disabled;
+                    cred
+                })
+                .collect()
+        };
+
+        // 序列化为 pretty JSON
+        let json = serde_json::to_string_pretty(&credentials).context("序列化凭据失败")?;
+
+        // 写入文件
+        std::fs::write(path, &json)
+            .with_context(|| format!("写入凭据文件失败: {:?}", path))?;
+
+        tracing::info!("已保存 {} 个凭据到 {:?}", credentials.len(), path);
+        Ok(())
     }
 }
 

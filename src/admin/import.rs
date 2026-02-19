@@ -24,9 +24,10 @@ pub struct KiroAccount {
     pub email: Option<String>,
     pub credentials: KiroAccountCredentials,
 
-    #[serde(rename = "machineId")]
+    #[serde(rename = "machineId", default)]
     pub machine_id: Option<String>,
 
+    #[serde(default)]
     pub subscription: Option<KiroSubscription>,
 
     #[serde(default)]
@@ -36,33 +37,35 @@ pub struct KiroAccount {
 /// kiro-accounts 凭据信息
 #[derive(Debug, Deserialize)]
 pub struct KiroAccountCredentials {
-    #[serde(rename = "accessToken")]
+    #[serde(rename = "accessToken", default)]
     pub access_token: Option<String>,
 
-    #[serde(rename = "refreshToken")]
+    #[serde(rename = "refreshToken", default)]
     pub refresh_token: Option<String>,
 
-    #[serde(rename = "clientId")]
+    #[serde(rename = "clientId", default)]
     pub client_id: Option<String>,
 
-    #[serde(rename = "clientSecret")]
+    #[serde(rename = "clientSecret", default)]
     pub client_secret: Option<String>,
 
+    #[serde(default)]
     pub region: Option<String>,
 
-    #[serde(rename = "expiresAt")]
+    #[serde(rename = "expiresAt", default)]
     pub expires_at: Option<i64>,
 
-    #[serde(rename = "authMethod")]
+    #[serde(rename = "authMethod", default)]
     pub auth_method: Option<String>,
 }
 
 /// kiro-accounts 订阅信息
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct KiroSubscription {
-    #[serde(rename = "type")]
+    #[serde(rename = "type", default)]
     pub sub_type: Option<String>,
 
+    #[serde(default)]
     pub title: Option<String>,
 }
 
@@ -105,11 +108,21 @@ fn timestamp_to_rfc3339(timestamp_ms: i64) -> String {
 
 /// 规范化认证方式
 fn normalize_auth_method(method: Option<&str>) -> Option<String> {
-    method.map(|m| match m.to_lowercase().as_str() {
-        "idc" | "builderid" | "iam" => "idc".to_string(),
-        "social" => "social".to_string(),
-        other => other.to_string(),
+    method.and_then(|m| {
+        if m.is_empty() {
+            return None;
+        }
+        Some(match m.to_lowercase().as_str() {
+            "idc" | "builderid" | "iam" => "idc".to_string(),
+            "social" => "social".to_string(),
+            other => other.to_string(),
+        })
     })
+}
+
+/// 过滤空字符串，转为 None
+fn filter_empty(s: Option<String>) -> Option<String> {
+    s.filter(|v| !v.is_empty())
 }
 
 /// 解析导入数据，支持多种格式
@@ -132,20 +145,20 @@ impl KiroAccount {
     pub fn to_credentials(&self) -> KiroCredentials {
         KiroCredentials {
             id: None,
-            access_token: self.credentials.access_token.clone(),
-            refresh_token: self.credentials.refresh_token.clone(),
+            access_token: filter_empty(self.credentials.access_token.clone()),
+            refresh_token: filter_empty(self.credentials.refresh_token.clone()),
             profile_arn: None,
             expires_at: self.credentials.expires_at.map(timestamp_to_rfc3339),
             auth_method: normalize_auth_method(self.credentials.auth_method.as_deref()),
-            client_id: self.credentials.client_id.clone(),
-            client_secret: self.credentials.client_secret.clone(),
+            client_id: filter_empty(self.credentials.client_id.clone()),
+            client_secret: filter_empty(self.credentials.client_secret.clone()),
             priority: 0,
-            region: self.credentials.region.clone(),
+            region: filter_empty(self.credentials.region.clone()),
             auth_region: None,
             api_region: None,
-            machine_id: self.machine_id.clone(),
-            email: self.email.clone(),
-            subscription_title: self.subscription.as_ref().and_then(|s| s.title.clone()),
+            machine_id: filter_empty(self.machine_id.clone()),
+            email: filter_empty(self.email.clone()),
+            subscription_title: self.subscription.as_ref().and_then(|s| filter_empty(s.title.clone())),
             proxy_url: None,
             proxy_username: None,
             proxy_password: None,
@@ -259,6 +272,14 @@ mod tests {
     #[test]
     fn test_normalize_auth_method_none() {
         assert_eq!(normalize_auth_method(None), None);
+        assert_eq!(normalize_auth_method(Some("")), None);
+    }
+
+    #[test]
+    fn test_filter_empty() {
+        assert_eq!(filter_empty(Some("test".to_string())), Some("test".to_string()));
+        assert_eq!(filter_empty(Some("".to_string())), None);
+        assert_eq!(filter_empty(None), None);
     }
 
     #[test]
@@ -290,6 +311,33 @@ mod tests {
         assert_eq!(creds.machine_id, Some("machine123".to_string()));
         assert_eq!(creds.subscription_title, Some("KIRO FREE".to_string()));
         assert!(creds.expires_at.unwrap().contains("2026"));
+    }
+
+    #[test]
+    fn test_to_credentials_empty_strings() {
+        let account = KiroAccount {
+            email: Some("".to_string()), // empty
+            credentials: KiroAccountCredentials {
+                access_token: Some("".to_string()), // empty
+                refresh_token: Some("".to_string()), // empty
+                client_id: Some("client-abc".to_string()),
+                client_secret: Some("secret-xyz".to_string()),
+                region: Some("".to_string()), // empty
+                expires_at: None,
+                auth_method: Some("".to_string()), // empty
+            },
+            machine_id: None,
+            subscription: None,
+            tags: vec![],
+        };
+
+        let creds = account.to_credentials();
+        assert_eq!(creds.email, None);
+        assert_eq!(creds.access_token, None);
+        assert_eq!(creds.refresh_token, None);
+        assert_eq!(creds.region, None);
+        assert_eq!(creds.auth_method, None);
+        assert_eq!(creds.client_id, Some("client-abc".to_string()));
     }
 
     #[test]
