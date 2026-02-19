@@ -162,7 +162,11 @@ pub async fn import_credentials_file(
 ) -> impl IntoResponse {
     let mut json_content: Option<String> = None;
 
-    while let Some(field) = multipart.next_field().await.unwrap_or(None) {
+    while let Some(field) = multipart.next_field().await.transpose() {
+        let field = match field {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
         if field.name() == Some("file") {
             match field.bytes().await {
                 Ok(bytes) => {
