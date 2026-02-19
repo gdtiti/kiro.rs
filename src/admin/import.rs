@@ -153,3 +153,154 @@ impl KiroAccount {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_kiro_accounts_export() {
+        let json = r#"{
+            "version": "1.5.0",
+            "exportedAt": 1771429590941,
+            "accounts": [
+                {
+                    "email": "test@example.com",
+                    "credentials": {
+                        "clientId": "test-client-id",
+                        "clientSecret": "test-secret",
+                        "region": "us-east-1",
+                        "expiresAt": 1771433116224,
+                        "authMethod": "IdC"
+                    }
+                }
+            ]
+        }"#;
+
+        let accounts = parse_import_data(json).unwrap();
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0].email, Some("test@example.com".to_string()));
+        assert_eq!(
+            accounts[0].credentials.client_id,
+            Some("test-client-id".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_accounts_array() {
+        let json = r#"[
+            {
+                "email": "user1@example.com",
+                "credentials": {
+                    "clientId": "client1",
+                    "region": "us-east-1"
+                }
+            },
+            {
+                "email": "user2@example.com",
+                "credentials": {
+                    "clientId": "client2",
+                    "region": "eu-west-1"
+                }
+            }
+        ]"#;
+
+        let accounts = parse_import_data(json).unwrap();
+        assert_eq!(accounts.len(), 2);
+        assert_eq!(accounts[0].email, Some("user1@example.com".to_string()));
+        assert_eq!(
+            accounts[1].credentials.region,
+            Some("eu-west-1".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_invalid_json() {
+        let json = r#"{"invalid": true}"#;
+        let result = parse_import_data(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_timestamp_to_rfc3339() {
+        let result = timestamp_to_rfc3339(1771433116224);
+        assert!(result.contains("2026"));
+    }
+
+    #[test]
+    fn test_normalize_auth_method_idc() {
+        assert_eq!(
+            normalize_auth_method(Some("IdC")),
+            Some("idc".to_string())
+        );
+        assert_eq!(
+            normalize_auth_method(Some("BuilderId")),
+            Some("idc".to_string())
+        );
+        assert_eq!(normalize_auth_method(Some("IAM")), Some("idc".to_string()));
+        assert_eq!(
+            normalize_auth_method(Some("builderid")),
+            Some("idc".to_string())
+        );
+    }
+
+    #[test]
+    fn test_normalize_auth_method_social() {
+        assert_eq!(
+            normalize_auth_method(Some("Social")),
+            Some("social".to_string())
+        );
+        assert_eq!(
+            normalize_auth_method(Some("social")),
+            Some("social".to_string())
+        );
+    }
+
+    #[test]
+    fn test_normalize_auth_method_none() {
+        assert_eq!(normalize_auth_method(None), None);
+    }
+
+    #[test]
+    fn test_to_credentials() {
+        let account = KiroAccount {
+            email: Some("test@example.com".to_string()),
+            credentials: KiroAccountCredentials {
+                access_token: None,
+                refresh_token: Some("refresh-token-123".to_string()),
+                client_id: Some("client-abc".to_string()),
+                client_secret: Some("secret-xyz".to_string()),
+                region: Some("us-east-1".to_string()),
+                expires_at: Some(1771433116224),
+                auth_method: Some("IdC".to_string()),
+            },
+            machine_id: Some("machine123".to_string()),
+            subscription: Some(KiroSubscription {
+                sub_type: Some("Free".to_string()),
+                title: Some("KIRO FREE".to_string()),
+            }),
+            tags: vec![],
+        };
+
+        let creds = account.to_credentials();
+        assert_eq!(creds.email, Some("test@example.com".to_string()));
+        assert_eq!(creds.client_id, Some("client-abc".to_string()));
+        assert_eq!(creds.auth_method, Some("idc".to_string()));
+        assert_eq!(creds.region, Some("us-east-1".to_string()));
+        assert_eq!(creds.machine_id, Some("machine123".to_string()));
+        assert_eq!(creds.subscription_title, Some("KIRO FREE".to_string()));
+        assert!(creds.expires_at.unwrap().contains("2026"));
+    }
+
+    #[test]
+    fn test_import_result() {
+        let result = ImportResult::new(5, 3, 0, 8);
+        assert_eq!(result.imported, 5);
+        assert_eq!(result.updated, 3);
+        assert_eq!(result.skipped, 0);
+        assert_eq!(result.total, 8);
+        assert!(result.success);
+        assert!(result.message.contains("新增 5"));
+        assert!(result.message.contains("更新 3"));
+    }
+}
