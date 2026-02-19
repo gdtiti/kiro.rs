@@ -18,11 +18,13 @@
 
 mod error;
 mod handlers;
+mod import;
 mod middleware;
 mod router;
 mod service;
 pub mod types;
 
+pub use import::{ImportResult, KiroAccount, KiroAccountsExport};
 pub use middleware::AdminState;
 pub use router::create_admin_router;
 pub use service::AdminService;
