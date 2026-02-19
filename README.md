@@ -99,6 +99,9 @@ cargo build --release
    "region": "us-east-1"
 }
 ```
+
+> **提示**：`apiKey` 和 `adminApiKey` 也可以通过环境变量设置，详见 [环境变量](#环境变量)
+
 > PS: 如果你需要 Web 管理面板, 请注意配置 `adminApiKey`
 
 创建 `credentials.json`（从 Kiro IDE 等中获取凭证信息）：
@@ -171,7 +174,7 @@ docker-compose up
 |------|------|--------|------|
 | `host` | string | `127.0.0.1` | 服务监听地址 |
 | `port` | number | `8080` | 服务监听端口 |
-| `apiKey` | string | - | 自定义 API Key（用于客户端认证，必配） |
+| `apiKey` | string | - | 自定义 API Key（用于客户端认证，必配；可通过 `KIRO_API_KEY` 环境变量覆盖） |
 | `region` | string | `us-east-1` | AWS 区域 |
 | `authRegion` | string | - | Auth Region（用于 Token 刷新），未配置时回退到 region |
 | `apiRegion` | string | - | API Region（用于 API 请求），未配置时回退到 region |
@@ -186,7 +189,7 @@ docker-compose up
 | `proxyUrl` | string | - | HTTP/SOCKS5 代理地址 |
 | `proxyUsername` | string | - | 代理用户名 |
 | `proxyPassword` | string | - | 代理密码 |
-| `adminApiKey` | string | - | Admin API 密钥，配置后启用凭据管理 API 和 Web 管理界面 |
+| `adminApiKey` | string | - | Admin API 密钥，配置后启用凭据管理 API 和 Web 管理界面（可通过 `KIRO_ADMIN_API_KEY` 环境变量覆盖） |
 | `loadBalancingMode` | string | `priority` | 负载均衡模式：`priority`（按优先级）或 `balanced`（均衡分配） |
 
 完整配置示例：
@@ -358,11 +361,28 @@ docker-compose up
 
 ### 环境变量
 
-可通过环境变量配置日志级别：
+支持以下环境变量配置：
+
+| 环境变量 | 描述 | 优先级 |
+|----------|------|--------|
+| `KIRO_API_KEY` | API Key（客户端认证），覆盖配置文件中的 `apiKey` | 环境变量 > 配置文件 |
+| `KIRO_ADMIN_API_KEY` | Admin API Key，覆盖配置文件中的 `adminApiKey` | 环境变量 > 配置文件 |
+| `RUST_LOG` | 日志级别（如 `debug`、`info`、`warn`） | - |
+
+示例：
 
 ```bash
-RUST_LOG=debug ./target/release/kiro-rs
+# 通过环境变量设置 API Key
+export KIRO_API_KEY="sk-your-api-key"
+export KIRO_ADMIN_API_KEY="sk-admin-secret-key"
+
+# 设置日志级别
+export RUST_LOG=debug
+
+./target/release/kiro-rs
 ```
+
+> **安全建议**：在生产环境中，推荐使用环境变量而非配置文件来设置敏感信息（如 API Key），避免将密钥意外提交到版本控制系统。
 
 ## API 端点
 
@@ -443,6 +463,8 @@ RUST_LOG=debug ./target/release/kiro-rs
 - **Admin API（认证同 API Key）**
   - `GET /api/admin/credentials` - 获取所有凭据状态
   - `POST /api/admin/credentials` - 添加新凭据
+  - `POST /api/admin/credentials/import` - 导入凭据（JSON Body）
+  - `POST /api/admin/credentials/import/file` - 导入凭据（文件上传）
   - `DELETE /api/admin/credentials/:id` - 删除凭据
   - `POST /api/admin/credentials/:id/disabled` - 设置凭据禁用状态
   - `POST /api/admin/credentials/:id/priority` - 设置凭据优先级
@@ -451,6 +473,46 @@ RUST_LOG=debug ./target/release/kiro-rs
 
 - **Admin UI**
   - `GET /admin` - 访问管理页面（需要在编译前构建 `admin-ui/dist`）
+
+### 凭据导入
+
+支持从 kiro-accounts 导出格式批量导入凭据：
+
+**方式 1：JSON Body**
+
+```bash
+curl -X POST http://localhost:8990/api/admin/credentials/import \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: your-admin-key" \
+  -d @kiro-accounts-2026-02-18.json
+```
+
+**方式 2：文件上传**
+
+```bash
+curl -X POST http://localhost:8990/api/admin/credentials/import/file \
+  -H "x-api-key: your-admin-key" \
+  -F "file=@kiro-accounts-2026-02-18.json"
+```
+
+**响应示例：**
+
+```json
+{
+  "success": true,
+  "message": "导入完成: 新增 5, 更新 3, 跳过 0, 共处理 8",
+  "imported": 5,
+  "updated": 3,
+  "skipped": 0,
+  "total": 8
+}
+```
+
+**导入逻辑：**
+- 相同 `clientId` 的凭据会被更新（覆盖更新）
+- 新凭据会被添加到列表末尾
+- 自动转换时间戳格式（毫秒 → RFC3339）
+- 自动规范化认证方式（IdC/BuilderId/IAM → idc）
 
 ## 注意事项
 
