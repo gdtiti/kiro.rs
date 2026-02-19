@@ -8,8 +8,8 @@ use axum::{
 use super::{
     handlers::{
         add_credential, delete_credential, get_all_credentials, get_credential_balance,
-        get_load_balancing_mode, reset_failure_count, set_credential_disabled,
-        set_credential_priority, set_load_balancing_mode,
+        get_load_balancing_mode, import_credentials, import_credentials_file, reset_failure_count,
+        set_credential_disabled, set_credential_priority, set_load_balancing_mode,
     },
     middleware::{AdminState, admin_auth_middleware},
 };
@@ -19,6 +19,8 @@ use super::{
 /// # 端点
 /// - `GET /credentials` - 获取所有凭据状态
 /// - `POST /credentials` - 添加新凭据
+/// - `POST /credentials/import` - 导入凭据（JSON Body）
+/// - `POST /credentials/import/file` - 导入凭据（文件上传）
 /// - `DELETE /credentials/:id` - 删除凭据
 /// - `POST /credentials/:id/disabled` - 设置凭据禁用状态
 /// - `POST /credentials/:id/priority` - 设置凭据优先级
@@ -33,6 +35,9 @@ use super::{
 /// - `Authorization: Bearer <token>` header
 pub fn create_admin_router(state: AdminState) -> Router {
     Router::new()
+        // 导入端点必须在 {id} 之前，否则 "import" 会被当作 id 解析
+        .route("/credentials/import", post(import_credentials))
+        .route("/credentials/import/file", post(import_credentials_file))
         .route(
             "/credentials",
             get(get_all_credentials).post(add_credential),

@@ -2,8 +2,10 @@
 
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Multipart, Path, State},
     response::IntoResponse,
+    http::StatusCode,
+    body::Bytes,
 };
 
 use super::{
@@ -121,6 +123,80 @@ pub async fn set_load_balancing_mode(
 ) -> impl IntoResponse {
     match state.service.set_load_balancing_mode(payload) {
         Ok(response) => Json(response).into_response(),
+        Err(e) => (e.status_code(), Json(e.into_response())).into_response(),
+    }
+}
+
+/// POST /api/admin/credentials/import
+/// 导入凭据（JSON Body）
+pub async fn import_credentials(
+    State(state): State<AdminState>,
+    body: Bytes,
+) -> impl IntoResponse {
+    let json_str = match String::from_utf8(body.to_vec()) {
+        Ok(s) => s,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(super::types::AdminErrorResponse::new(
+                    "invalid_request",
+                    "无效的 UTF-8 编码".to_string(),
+                )),
+            )
+                .into_response();
+        }
+    };
+
+    match state.service.import_credentials(&json_str) {
+        Ok(result) => Json(result).into_response(),
+        Err(e) => (e.status_code(), Json(e.into_response())).into_response(),
+    }
+}
+
+/// POST /api/admin/credentials/import/file
+/// 导入凭据（文件上传）
+pub async fn import_credentials_file(
+    State(state): State<AdminState>,
+    mut multipart: Multipart,
+) -> impl IntoResponse {
+    let mut json_content: Option<String> = None;
+
+    while let Some(field) = multipart.next_field().await.unwrap_or(None) {
+        if field.name() == Some("file") {
+            match field.bytes().await {
+                Ok(bytes) => {
+                    json_content = String::from_utf8(bytes.to_vec()).ok();
+                }
+                Err(_) => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(super::types::AdminErrorResponse::new(
+                            "invalid_request",
+                            "文件读取失败".to_string(),
+                        )),
+                    )
+                        .into_response();
+                }
+            }
+        }
+    }
+
+    let json_str = match json_content {
+        Some(s) => s,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(super::types::AdminErrorResponse::new(
+                    "invalid_request",
+                    "未找到上传文件".to_string(),
+                )),
+            )
+                .into_response();
+        }
+    };
+
+    match state.service.import_credentials(&json_str) {
+        Ok(result) => Json(result).into_response(),
         Err(e) => (e.status_code(), Json(e.into_response())).into_response(),
     }
 }
