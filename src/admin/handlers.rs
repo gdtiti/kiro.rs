@@ -133,7 +133,8 @@ pub async fn import_credentials(
     State(state): State<AdminState>,
     body: Bytes,
 ) -> impl IntoResponse {
-    let json_str = match String::from_utf8(body.to_vec()) {
+    let vec: Vec<u8> = body.to_vec();
+    let json_str = match String::from_utf8(vec) {
         Ok(s) => s,
         Err(_) => {
             return (
