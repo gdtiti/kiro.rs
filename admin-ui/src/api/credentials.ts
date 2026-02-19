@@ -96,3 +96,36 @@ export async function setLoadBalancingMode(mode: 'priority' | 'balanced'): Promi
   const { data } = await api.put<{ mode: 'priority' | 'balanced' }>('/config/load-balancing', { mode })
   return data
 }
+
+// 导入凭据（JSON Body）
+export async function importCredentials(jsonContent: string): Promise<ImportResultResponse> {
+  const { data } = await api.post<ImportResultResponse>('/credentials/import', jsonContent, {
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+  return data
+}
+
+// 导入凭据（文件上传）
+export async function importCredentialsFromFile(file: File): Promise<ImportResultResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+  
+  const { data } = await api.post<ImportResultResponse>('/credentials/import/file', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+  return data
+}
+
+// 导入结果响应类型
+export interface ImportResultResponse {
+  success: boolean
+  message: string
+  imported: number
+  updated: number
+  skipped: number
+  total: number
+}

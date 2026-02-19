@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { toast } from 'sonner'
-import { CheckCircle2, XCircle, AlertCircle, Loader2 } from 'lucide-react'
+import { CheckCircle2, XCircle, AlertCircle, Loader2, Upload, FileJson } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { useCredentials, useAddCredential, useDeleteCredential } from '@/hooks/use-credentials'
-import { getCredentialBalance, setCredentialDisabled } from '@/api/credentials'
+import { getCredentialBalance, setCredentialDisabled, importCredentialsFromFile, importCredentials } from '@/api/credentials'
 import { extractErrorMessage } from '@/lib/utils'
 
 interface BatchImportDialogProps {
@@ -53,6 +53,9 @@ export function BatchImportDialog({ open, onOpenChange }: BatchImportDialogProps
   const [progress, setProgress] = useState({ current: 0, total: 0 })
   const [currentProcessing, setCurrentProcessing] = useState<string>('')
   const [results, setResults] = useState<VerificationResult[]>([])
+  const [importMode, setImportMode] = useState<'quick' | 'verify'>('quick')
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const { data: existingCredentials } = useCredentials()
   const { mutateAsync: addCredential } = useAddCredential()
@@ -84,6 +87,47 @@ export function BatchImportDialog({ open, onOpenChange }: BatchImportDialogProps
     setProgress({ current: 0, total: 0 })
     setCurrentProcessing('')
     setResults([])
+    setSelectedFile(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setSelectedFile(file)
+      // 自动读取文件内容到文本框
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const content = event.target?.result as string
+        setJsonInput(content)
+      }
+      reader.readAsText(file)
+    }
+  }
+
+  // 快速导入（使用后端 API）
+  const handleQuickImport = async () => {
+    try {
+      setImporting(true)
+      setCurrentProcessing('正在导入...')
+      
+      let result
+      if (selectedFile) {
+        result = await importCredentialsFromFile(selectedFile)
+      } else {
+        result = await importCredentials(jsonInput)
+      }
+      
+      toast.success(result.message)
+      onOpenChange(false)
+      resetForm()
+    } catch (error) {
+      toast.error('导入失败: ' + extractErrorMessage(error))
+    } finally {
+      setImporting(false)
+    }
   }
 
   const handleBatchImport = async () => {
@@ -312,27 +356,96 @@ export function BatchImportDialog({ open, onOpenChange }: BatchImportDialogProps
     >
       <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>批量导入凭据（自动验活）</DialogTitle>
+          <DialogTitle>批量导入凭据</DialogTitle>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto space-y-4 py-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">
-              JSON 格式凭据
-            </label>
-            <textarea
-              placeholder={'粘贴 JSON 格式的凭据（支持单个对象或数组）\n例如: [{"refreshToken":"...","clientId":"...","clientSecret":"...","authRegion":"us-east-1","apiRegion":"us-west-2"}]\n支持 region 字段自动映射为 authRegion'}
-              value={jsonInput}
-              onChange={(e) => setJsonInput(e.target.value)}
-              disabled={importing}
-              className="flex min-h-[200px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
-            />
-            <p className="text-xs text-muted-foreground">
-              💡 导入时自动验活，失败的凭据会被排除
-            </p>
+          {/* 导入模式选择 */}
+          <div className="flex gap-2 p-1 bg-muted rounded-lg">
+            <button
+              type="button"
+              onClick={() => setImportMode('quick')}
+              className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                importMode === 'quick'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              快速导入
+            </button>
+            <button
+              type="button"
+              onClick={() => setImportMode('verify')}
+              className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                importMode === 'verify'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              验活导入
+            </button>
           </div>
 
-          {(importing || results.length > 0) && (
+          {/* 文件上传区域 */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">
+              上传 kiro-accounts 导出文件
+            </label>
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary transition-colors"
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                onChange={handleFileSelect}
+                className="hidden"
+                disabled={importing}
+              />
+              {selectedFile ? (
+                <div className="flex items-center justify-center gap-2">
+                  <FileJson className="h-6 w-6 text-primary" />
+                  <span className="text-sm font-medium">{selectedFile.name}</span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-2">
+                  <Upload className="h-8 w-8 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
+                    点击选择 kiro-accounts-*.json 文件
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* JSON 输入区域 */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">
+              或粘贴 JSON 内容
+            </label>
+            <textarea
+              placeholder={'支持 kiro-accounts 导出格式或凭据数组\n例如: {"version":"1.5.0","accounts":[...]}\n或: [{"refreshToken":"...","clientId":"..."}]'}
+              value={jsonInput}
+              onChange={(e) => {
+                setJsonInput(e.target.value)
+                setSelectedFile(null)
+              }}
+              disabled={importing}
+              className="flex min-h-[150px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
+            />
+            {importMode === 'quick' ? (
+              <p className="text-xs text-muted-foreground">
+                💡 快速导入：相同 clientId 的凭据会被更新，新凭据会被添加
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                💡 验活导入：导入时自动验活，失败的凭据会被排除
+              </p>
+            )}
+          </div>
+
+          {(importing || results.length > 0) && importMode === 'verify' && (
             <>
               {/* 进度条 */}
               <div className="space-y-2">
@@ -367,7 +480,7 @@ export function BatchImportDialog({ open, onOpenChange }: BatchImportDialogProps
               </div>
 
               {/* 结果列表 */}
-              <div className="border rounded-md divide-y max-h-[300px] overflow-y-auto">
+              <div className="border rounded-md divide-y max-h-[200px] overflow-y-auto">
                 {results.map((result) => (
                   <div key={result.index} className="p-3">
                     <div className="flex items-start gap-3">
@@ -415,15 +528,15 @@ export function BatchImportDialog({ open, onOpenChange }: BatchImportDialogProps
             }}
             disabled={importing}
           >
-            {importing ? '验活中...' : results.length > 0 ? '关闭' : '取消'}
+            {importing ? (importMode === 'quick' ? '导入中...' : '验活中...') : results.length > 0 ? '关闭' : '取消'}
           </Button>
           {results.length === 0 && (
             <Button
               type="button"
-              onClick={handleBatchImport}
+              onClick={importMode === 'quick' ? handleQuickImport : handleBatchImport}
               disabled={importing || !jsonInput.trim()}
             >
-              开始导入并验活
+              {importMode === 'quick' ? '快速导入' : '开始导入并验活'}
             </Button>
           )}
         </DialogFooter>
