@@ -165,7 +165,8 @@ pub async fn import_credentials_file(
         if field.name() == Some("file") {
             match field.bytes().await {
                 Ok(bytes) => {
-                    json_content = String::from_utf8(bytes.to_vec()).ok();
+                    let vec: Vec<u8> = bytes.to_vec();
+                    json_content = String::from_utf8(vec).ok();
                 }
                 Err(_) => {
                     return (
