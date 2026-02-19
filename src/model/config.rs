@@ -178,18 +178,37 @@ impl Config {
     }
 
     /// 从文件加载配置
+    ///
+    /// 环境变量优先级高于配置文件：
+    /// - `KIRO_API_KEY`: 覆盖配置文件中的 apiKey
+    /// - `KIRO_ADMIN_API_KEY`: 覆盖配置文件中的 adminApiKey
     pub fn load<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let path = path.as_ref();
-        if !path.exists() {
+        let mut config = if !path.exists() {
             // 配置文件不存在，返回默认配置
             let mut config = Self::default();
             config.config_path = Some(path.to_path_buf());
-            return Ok(config);
+            config
+        } else {
+            let content = fs::read_to_string(path)?;
+            let mut config: Config = serde_json::from_str(&content)?;
+            config.config_path = Some(path.to_path_buf());
+            config
+        };
+
+        // 环境变量覆盖配置文件
+        if let Ok(api_key) = std::env::var("KIRO_API_KEY") {
+            if !api_key.is_empty() {
+                config.api_key = Some(api_key);
+            }
         }
 
-        let content = fs::read_to_string(path)?;
-        let mut config: Config = serde_json::from_str(&content)?;
-        config.config_path = Some(path.to_path_buf());
+        if let Ok(admin_api_key) = std::env::var("KIRO_ADMIN_API_KEY") {
+            if !admin_api_key.is_empty() {
+                config.admin_api_key = Some(admin_api_key);
+            }
+        }
+
         Ok(config)
     }
 
