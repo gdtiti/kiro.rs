@@ -99,12 +99,22 @@ export async function setLoadBalancingMode(mode: 'priority' | 'balanced'): Promi
 
 // 导入凭据（JSON Body）
 export async function importCredentials(jsonContent: string): Promise<ImportResultResponse> {
-  const { data } = await api.post<ImportResultResponse>('/credentials/import', jsonContent, {
+  // 直接发送 JSON 字符串作为 body
+  const response = await fetch('/api/admin/credentials/import', {
+    method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'x-api-key': storage.getApiKey() || '',
     },
+    body: jsonContent,
   })
-  return data
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: { message: 'Request failed' } }))
+    throw new Error(error.error?.message || `HTTP ${response.status}`)
+  }
+  
+  return response.json()
 }
 
 // 导入凭据（文件上传）
@@ -112,12 +122,20 @@ export async function importCredentialsFromFile(file: File): Promise<ImportResul
   const formData = new FormData()
   formData.append('file', file)
   
-  const { data } = await api.post<ImportResultResponse>('/credentials/import/file', formData, {
+  const response = await fetch('/api/admin/credentials/import/file', {
+    method: 'POST',
     headers: {
-      'Content-Type': 'multipart/form-data',
+      'x-api-key': storage.getApiKey() || '',
     },
+    body: formData,
   })
-  return data
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: { message: 'Request failed' } }))
+    throw new Error(error.error?.message || `HTTP ${response.status}`)
+  }
+  
+  return response.json()
 }
 
 // 导入结果响应类型
